@@ -1,0 +1,83 @@
+# Python bytecode and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+*.dylib
+
+# Distribution / packaging
+.Python
+build/
+dist/
+.eggs/
+*.egg-info/
+*.wheel
+pip-wheel-metadata/
+
+# Virtual environments
+.env/
+.venv/
+venv/
+ENV/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.coverage
+.coverage.*
+.cache/
+pytest_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Profiling data
+*.prof
+
+# VS Code settings
+.vscode/
+
+# JetBrains IDE settings
+.idea/
+
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear on external disks
+.Spotlight-V100
+.Trashes
+
+# Streamlit configuration
+.streamlit/
+
+# PDFs, PPTX, and other generated artifacts
+*.pdf
+*.pptx
+
+# Data files (avoid committing large datasets)
+*.csv
+*.tsv
+*.xls*
+*.parquet
+
+# GitHub Desktop backups
+*.orig
+
+# End of .gitignore 
