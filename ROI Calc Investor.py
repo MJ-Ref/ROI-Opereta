@@ -1,6 +1,10 @@
+# External libs
 import streamlit as st
 import pandas as pd
-from constants import *  # Centralized constants module
+
+# Internal modules
+from constants import *  # Centralized constants
+from calculations import compute_all_savings  # Encapsulated ROI math
 
 # --- Apply custom theming for a professional investor-ready look ---
 st.set_page_config(
@@ -328,12 +332,6 @@ TIER_DATA = {
     }
 }
 
-def calculate_daily_salary(annual_salary):
-    return annual_salary / 260
-
-def calculate_cost_of_vacancy_per_day(annual_salary):
-    return calculate_daily_salary(annual_salary) * COST_OF_VACANCY_PER_DAY_ESTIMATE_FACTOR
-
 # --- Main App UI ---
 st.image("https://storage.googleapis.com/komodobucket/opereta_logo.png", width=200) # Replace with your logo URL or path
 
@@ -425,12 +423,25 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# --- Scenario Sensitivity ---
+SCENARIOS = {
+    "Conservative (50% Impact)": 0.5,
+    "Base (100% Impact)": 1.0,
+    "Aggressive (125% Impact)": 1.25,
+}
+
+selected_scenario_label = st.sidebar.selectbox("Assumption Scenario:", list(SCENARIOS.keys()), index=1)
+scenario_multiplier = SCENARIOS[selected_scenario_label]
+
+# Build a scenario-scaled impact dict
+scaled_impact = {k: v * scenario_multiplier for k, v in OPERETA_IMPACT.items()}
+
 # Display a few key impact metrics as a horizontal bar chart using HTML/CSS
 impact_metrics = [
-    {"name": "Time-to-Fill Reduction", "value": f"{OPERETA_IMPACT['ttf_total_reduction_percent']*100:.0f}%"},
-    {"name": "Mis-hire Reduction", "value": f"{OPERETA_IMPACT['mishire_rate_reduction_percent']*100:.0f}%"},
-    {"name": "Internal Fill Rate Increase", "value": f"{OPERETA_IMPACT['internal_fill_rate_increase_points']*100:.0f}%"},
-    {"name": "Time-to-Productivity Reduction", "value": f"{OPERETA_IMPACT['time_to_productivity_reduction_percent']*100:.0f}%"}
+    {"name": "Time-to-Fill Reduction", "value": f"{scaled_impact['ttf_total_reduction_percent']*100:.0f}%"},
+    {"name": "Mis-hire Reduction", "value": f"{scaled_impact['mishire_rate_reduction_percent']*100:.0f}%"},
+    {"name": "Internal Fill Rate Increase", "value": f"{scaled_impact['internal_fill_rate_increase_points']*100:.0f}%"},
+    {"name": "Time-to-Productivity Reduction", "value": f"{scaled_impact['time_to_productivity_reduction_percent']*100:.0f}%"}
 ]
 
 for metric in impact_metrics:
@@ -458,83 +469,35 @@ current_internal_fill_rate_percent = 0.24 # Baseline from research
 st.caption("Note: 'Current Baseline Values' are derived from established industry research and benchmarks, as detailed in Opereta's comprehensive ROI data. These represent typical challenges Opereta addresses.")
 
 # --- Calculations (Simplified for Investor View) ---
-all_savings_details = []
-total_annual_savings = 0
+# Compute savings via centralised calculations module (cached)
 
-# 1. Hiring Inefficiency & Volume
-daily_vacancy_cost = calculate_cost_of_vacancy_per_day(avg_annual_salary)
-ttf_reduction_days_opereta = current_time_to_fill_days * OPERETA_IMPACT["ttf_total_reduction_percent"]
-savings_ttf = ttf_reduction_days_opereta * daily_vacancy_cost * annual_hires
-all_savings_details.append({"Category": "1. Hiring Process Optimization", "Area": "Reduced Time-to-Fill", "Annual Savings ($)": savings_ttf})
-total_annual_savings += savings_ttf
+@st.cache_data(show_spinner=False)
+def _get_savings(
+    num_employees: int,
+    annual_hires: int,
+    avg_annual_salary: float,
+    avg_recruiter_salary: float,
+    num_recruiters: int,
+    impact: dict,
+):
+    return compute_all_savings(
+        num_employees=num_employees,
+        annual_hires=annual_hires,
+        avg_annual_salary=avg_annual_salary,
+        avg_recruiter_salary=avg_recruiter_salary,
+        num_recruiters=num_recruiters,
+        impact=impact,
+    )
 
-recruiter_hours_saved_annual_opereta = OPERETA_IMPACT["recruiter_total_hours_saved_per_week_per_recruiter"] * 50 * num_recruiters
-savings_recruiter_time = recruiter_hours_saved_annual_opereta * (avg_recruiter_salary / 2080)
-all_savings_details.append({"Category": "1. Hiring Process Optimization", "Area": "Increased Recruiter Productivity", "Annual Savings ($)": savings_recruiter_time})
-total_annual_savings += savings_recruiter_time
 
-cph_reduction_amount_opereta = current_cost_per_hire * OPERETA_IMPACT["cph_total_reduction_percent"]
-savings_cph = cph_reduction_amount_opereta * annual_hires
-all_savings_details.append({"Category": "1. Hiring Process Optimization", "Area": "Lower Cost-Per-Hire", "Annual Savings ($)": savings_cph})
-total_annual_savings += savings_cph
-
-# 2. Hiring Quality & Mis-Hires
-avg_cost_of_mishire_calc = avg_annual_salary * MISHIRE_COST_PERCENT_OF_SALARY_DOL
-current_annual_mishires_val = annual_hires * current_mishire_rate_percent
-mishires_reduced_opereta = current_annual_mishires_val * OPERETA_IMPACT["mishire_rate_reduction_percent"]
-savings_mishires = mishires_reduced_opereta * avg_cost_of_mishire_calc
-all_savings_details.append({"Category": "2. Enhanced Hiring Quality", "Area": "Reduced Mis-Hire Costs", "Annual Savings ($)": savings_mishires})
-total_annual_savings += savings_mishires
-
-# 3. Role Definition & Strategic Alignment
-cost_per_early_leaver_replacement_calc = avg_annual_salary * COST_TO_REPLACE_PERCENT_OF_SALARY
-num_early_leavers_shift_shock_val = annual_hires * current_early_turnover_90_days_percent * 0.43 # 43% due to mismatch
-shift_shock_leavers_prevented_opereta = num_early_leavers_shift_shock_val * OPERETA_IMPACT["shift_shock_turnover_reduction_percent"]
-savings_shift_shock = shift_shock_leavers_prevented_opereta * cost_per_early_leaver_replacement_calc
-all_savings_details.append({"Category": "3. Strategic Role Alignment", "Area": "Lower Early Attrition (Role Clarity)", "Annual Savings ($)": savings_shift_shock})
-total_annual_savings += savings_shift_shock
-
-# 4. Interviewing & Assessment
-num_interviews_annually_val = annual_hires * INTERVIEWS_PER_HIRE
-time_saved_scheduling_opereta_val = num_interviews_annually_val * 1 * OPERETA_IMPACT["interview_scheduling_time_reduction_percent"]
-savings_interview_scheduling_val = time_saved_scheduling_opereta_val * RECRUITER_AVG_HOURLY_RATE
-all_savings_details.append({"Category": "4. Optimized Interviewing", "Area": "Efficient Interview Scheduling", "Annual Savings ($)": savings_interview_scheduling_val})
-total_annual_savings += savings_interview_scheduling_val
-
-# 5. Onboarding & Time-to-Productivity
-current_ramp_months_val = AVG_TIME_TO_PRODUCTIVITY_MONTHS
-opereta_ramp_months_val = current_ramp_months_val * (1 - OPERETA_IMPACT["time_to_productivity_reduction_percent"])
-months_ramp_saved_val = current_ramp_months_val - opereta_ramp_months_val
-savings_faster_ttp_val = (avg_annual_salary / 12) * months_ramp_saved_val * 0.5 * annual_hires # 0.5 for avg productivity deficit
-all_savings_details.append({"Category": "5. Accelerated Onboarding", "Area": "Faster Time-to-Productivity", "Annual Savings ($)": savings_faster_ttp_val})
-total_annual_savings += savings_faster_ttp_val
-
-# 6. Internal Mobility & Skill Visibility
-external_hires_baseline_val = annual_hires * (1 - current_internal_fill_rate_percent)
-new_internal_fill_rate_val = current_internal_fill_rate_percent + OPERETA_IMPACT["internal_fill_rate_increase_points"]
-external_hires_avoided_val = annual_hires * (new_internal_fill_rate_val - current_internal_fill_rate_percent) # Corrected logic
-cost_saving_per_internal_hire_calc = (avg_annual_salary * EXTERNAL_HIRE_SALARY_PREMIUM_PERCENT) + (current_cost_per_hire * 0.5)
-savings_internal_fill = external_hires_avoided_val * cost_saving_per_internal_hire_calc
-all_savings_details.append({"Category": "6. Improved Internal Mobility", "Area": "Increased Internal Fill Rate & Cost Savings", "Annual Savings ($)": savings_internal_fill})
-total_annual_savings += savings_internal_fill
-
-# 7. Performance Management & Development
-total_payroll_val = num_employees * avg_annual_salary
-savings_pm_productivity_val = (total_payroll_val * 0.20) * OPERETA_IMPACT["productivity_gain_from_better_pm_percent_of_payroll_segment"] # 3% gain on 20% of workforce
-all_savings_details.append({"Category": "7. Effective Performance & Development", "Area": "Productivity Gains from Engaged PM", "Annual Savings ($)": savings_pm_productivity_val})
-total_annual_savings += savings_pm_productivity_val
-
-num_voluntary_leavers_val = num_employees * current_annual_voluntary_turnover_percent
-leavers_prevented_pm_val = num_voluntary_leavers_val * OPERETA_IMPACT["turnover_reduction_from_better_pm_percent_of_turnover"]
-savings_pm_turnover_val = leavers_prevented_pm_val * (avg_annual_salary * COST_TO_REPLACE_PERCENT_OF_SALARY)
-all_savings_details.append({"Category": "7. Effective Performance & Development", "Area": "Reduced Turnover (Better Growth Paths)", "Annual Savings ($)": savings_pm_turnover_val})
-total_annual_savings += savings_pm_turnover_val
-
-# 8. Strategic Workforce Planning
-savings_swp_labor_opt_val = total_payroll_val * OPERETA_IMPACT["labor_budget_swp_total_saving_percent"]
-all_savings_details.append({"Category": "8. Strategic Workforce Planning", "Area": "Optimized Labor Budget & Skill Deployment", "Annual Savings ($)": savings_swp_labor_opt_val})
-total_annual_savings += savings_swp_labor_opt_val
-
+all_savings_details, total_annual_savings = _get_savings(
+    num_employees,
+    annual_hires,
+    avg_annual_salary,
+    avg_recruiter_salary,
+    num_recruiters,
+    scaled_impact,
+)
 
 # --- Display ROI Summary for Investor ---
 net_annual_benefit = total_annual_savings - opereta_annual_cost
@@ -693,6 +656,21 @@ with st.expander(f"Click for Detailed ROI Breakdown for {selected_tier_name} (Ju
             </div>
             """
             st.markdown(styled_table, unsafe_allow_html=True)
+
+            # --- Detailed math formulas (optional) ---
+            formulas_lookup = {
+                "1. Hiring Process Optimization": """#### 🔍 Calculation Details\n- **Reduced TTF:** `TTF_saved_days × Daily Vacancy Cost × Annual Hires`\n- **Recruiter Productivity:** `Hours saved × Hourly recruiter cost`\n- **Lower CPH:** `Baseline CPH × Reduction % × Annual Hires`\n\n_See `docs/value_generation_framework.md#1-hiring-process-optimization` for full walkthrough and source links._""",
+                "2. Enhanced Hiring Quality": """#### 🔍 Calculation Details\n`Mis-hire Cost × Bad Hires Prevented`\n\nWhere:\n- `Mis-hire Cost = Avg Salary × 30 %` (US DoL)\n- `Bad Hires Prevented = Annual Hires × 15 % mis-hire rate × 35 % reduction`\n\n_See `docs/value_generation_framework.md#2-enhanced-hiring-quality` for worked example._""",
+                "3. Strategic Role Alignment": """#### 🔍 Calculation Details\n`Early_Turnover × 43 % shift-shock × 60 % reduction × Replacement_Cost`\n\nReplacement cost = `Avg Salary × 21 %`\n\n_See `docs/value_generation_framework.md#3-strategic-role-alignment` for full breakdown._""",
+                "4. Optimized Interviewing": """#### 🔍 Calculation Details\n`Interviews_per_year × Time_saved × Recruiter_hourly_rate`\n\nTime saved ≈ 0.9 h/interview (90 % reduction).\n\n_See `docs/value_generation_framework.md#4-optimized-interviewing`._""",
+                "5. Accelerated Onboarding": """#### 🔍 Calculation Details\n`(Avg Sal / 12) × Months_saved × 50 % productivity_gap × Annual_Hires`\n\nMonths_saved = `8 mo × 35 %`\n\n_See `docs/value_generation_framework.md#5-accelerated-onboarding`._""",
+                "6. Improved Internal Mobility": """#### 🔍 Calculation Details\n`External_Hires_Avoided × (Salary_Premium + 0.5 × CPH)`\n\nExternal_Hires_Avoided derives from 20 pp increase in internal fill rate.\n\n_See `docs/value_generation_framework.md#6-improved-internal-mobility`._""",
+                "7. Effective Performance & Development": """#### 🔍 Calculation Details\n• **Productivity Gains:** `Total_Payroll × 20 % segment × 3 % uplift`\n• **Turnover Savings:** `Voluntary Leavers × 30 % reduction × Replacement_Cost`\n\n_See `docs/value_generation_framework.md#7-effective-performance--development`._""",
+                "8. Strategic Workforce Planning": """#### 🔍 Calculation Details\n`Total_Payroll × 4 %` labor budget optimisation.\n\n_See `docs/value_generation_framework.md#8-strategic-workforce-planning`._""",
+            }
+
+            if category_name in formulas_lookup:
+                st.markdown(formulas_lookup[category_name], unsafe_allow_html=True)
         else:
             # Fallback for any category not explicitly defined (should not happen if all_savings_details matches)
             st.subheader(category_name)
@@ -776,3 +754,14 @@ st.markdown("""
     <p style="margin: 0;">This ROI demonstration is based on industry data and reasoned assumptions. Opereta offers customized value assessments for prospective clients and detailed discussions for investors. (Internal Model Version: Investor Pitch v1.0)</p>
 </div>
 """, unsafe_allow_html=True)
+
+# -------------------------------------------------------------------
+# OPTIONAL: full math deep-dive markdown
+# -------------------------------------------------------------------
+
+with st.expander("📚 Full Value Generation Framework – formulas & assumptions"):
+    try:
+        with open("docs/value_generation_framework.md", "r") as md_file:
+            st.markdown(md_file.read())
+    except FileNotFoundError:
+        st.warning("Detailed markdown file not found. Please ensure docs/value_generation_framework.md is present.")
